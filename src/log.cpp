@@ -9,11 +9,15 @@ uint32_t Log::logLineCount;
 queue_t Log::logQueue;
 mutex_t Log::logLock;
 char Log::logLine[512];
+bool Log::stdioReady;
 
 void Log::init() {
     mutex_init(&logLock);
-    queue_init(&logQueue, 255, LOG_BUFFER_SIZE);
+    queue_init(&logQueue, 512, LOG_BUFFER_SIZE);
     Log::logLineCount = 0;
+    Log::stdioReady = false;
+
+    LOG("--- LOGGER INITIALISED --- LOG STARTS HERE ---");
 }
 
 void Log::dlog(char* file, uint32_t line, char* text) {
@@ -26,17 +30,19 @@ void Log::dlog(char* file, uint32_t line, char* text) {
     std::string fname = std::string(file);
     auto const pos = fname.find_last_of('/');
     fname = fname.substr(pos + 1);
+    uint32_t ms = (uint32_t)(time_us_64() / 1000);
 
     // If ACM console IS connected, just print it
     // If ACM console is not connected, append to log buffer (of course size-limitig it)
-    if (tud_cdc_connected()) {
-        printf("{\"tp\": \"log\", \"count\": %ld, \"ms\": %ld, \"core\": %u, \"file\": \"%s\", \"line\": %ld, \"text\": \"%s\"}\n", logLineCount, (uint32_t)(time_us_64() / 1000), get_core_num(), fname.c_str(), line, text);
+    if (Log::stdioReady && tud_cdc_connected()) {
+        printf("{\"tp\": \"log\", \"count\": %ld, \"ms\": %ld, \"core\": %u, \"file\": \"%s\", \"line\": %ld, \"text\": \"%s\"}\n", logLineCount, ms, get_core_num(), fname.c_str(), line, text);
+        tud_cdc_write_flush();
     } else {
         mutex_enter_blocking(&logLock);
         if (queue_is_full(&logQueue)) {
             queue_remove_blocking(&logQueue, logLine);
         }
-        snprintf(logLine, 512, "{\"tp\": \"log\", \"count\": %ld, \"ms\": %ld, \"core\": %u, \"file\": \"%s\", \"line\": %ld, \"text\": \"%s\"}\n", logLineCount, (uint32_t)(time_us_64() / 1000), get_core_num(), fname.c_str(), line, text);
+        snprintf(logLine, 512, "{\"tp\": \"log\", \"count\": %ld, \"ms\": %ld, \"core\": %u, \"file\": \"%s\", \"line\": %ld, \"text\": \"%s\"}\n", logLineCount, ms, get_core_num(), fname.c_str(), line, text);
         queue_add_blocking(&logQueue, logLine);
         mutex_exit(&logLock);
     }
@@ -64,7 +70,7 @@ size_t Log::getLogBuffer(char* buffer, size_t size) {
     while(!queue_is_empty(&logQueue))
     {
         // Make sure we have enough space left in the buffer
-        if ((size - offset) < 257) {
+        if ((size - offset) < 510) {
             break;
         }
         queue_remove_blocking(&logQueue, logLine);

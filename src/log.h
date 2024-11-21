@@ -18,6 +18,7 @@ class Log {
     static size_t getLogBufferNumEntries();
     static size_t getLogBuffer(char* buffer, size_t size);
     static void clearLogBuffer();
+    static bool stdioReady;
 
   private:
     static uint32_t logLineCount;
