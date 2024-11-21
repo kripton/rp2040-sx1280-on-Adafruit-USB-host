@@ -33,8 +33,11 @@ int main() {
 
     // /!\ Do NOT use LOG() above this line! /!\
 
-    // Now that we know our final product name (depends on the hardware
-    // connected): Enable USB interface, the debugging console and the logger
+    // Set up the onboard LED
+    gpio_init(PICO_DEFAULT_LED_PIN);
+    gpio_set_dir(PICO_DEFAULT_LED_PIN, GPIO_OUT);
+
+    // Enable USB interface, the debugging console and the logger
     tusb_init();
     stdio_usb_init();
     Log::stdioReady = true;
@@ -76,6 +79,7 @@ int main() {
 void core1_tasks() {
     while (true) {
         LOG("Core1 idling about ...");
+        gpio_put(PICO_DEFAULT_LED_PIN, !gpio_get(PICO_DEFAULT_LED_PIN));
         sleep_ms(5000);
     }
 };

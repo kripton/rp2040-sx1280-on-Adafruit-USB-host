@@ -14,10 +14,10 @@
 extern char __StackLimit; /* Set by linker.  */
 
 static const tCGI cgi_handlers[] = {
-    {"/system/reset/boot",
-    cgi_system_reset_boot},
-    {"/system/reset/system",
-    cgi_system_reset_system},
+    {"api/reset/boot",
+    cgi_api_reset_boot},
+    {"/api/reset/system",
+    cgi_api_reset_system},
 };
 
 // This array doesn't need elements since we are using LWIP_HTTPD_SSI_RAW
@@ -44,18 +44,17 @@ void WebServer::ipToString(uint32_t ip, char *ipString)
     sprintf(ipString, "%ld.%ld.%ld.%ld", (ip & 0xff), ((ip >> 8) & 0xff), ((ip >> 16) & 0xff), ((ip >> 24) & 0xff));
 }
 
-static const char *cgi_system_reset_boot(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+static const char *cgi_api_reset_boot(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {
     reset_usb_boot(0, 0);
     return "/empty.html";
 }
 
-static const char *cgi_system_reset_system(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
+static const char *cgi_api_reset_system(int iIndex, int iNumParams, char *pcParam[], char *pcValue[])
 {
     watchdog_reboot(0, 0, 100);
     return "/empty.html";
 }
-
 
 static u16_t ssi_handler(const char *ssi_tag_name, char *pcInsert, int iInsertLen)
 {

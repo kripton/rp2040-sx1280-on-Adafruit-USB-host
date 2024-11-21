@@ -33,8 +33,8 @@ class WebServer {
 extern "C" {
 #endif
 
-static const char *cgi_system_reset_boot(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
-static const char *cgi_system_reset_system(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
+static const char *cgi_api_reset_boot(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
+static const char *cgi_api_reset_system(int iIndex, int iNumParams, char *pcParam[], char *pcValue[]);
 
 static u16_t ssi_handler(const char* ssi_tag_name, char *pcInsert, int iInsertLen);
 
