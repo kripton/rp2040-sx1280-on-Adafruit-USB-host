@@ -50,6 +50,16 @@ void Log::dlog(char* file, uint32_t line, char* text) {
     Log::logLineCount++;
 }
 
+void Log::dloghex(char* file, uint32_t line, uint8_t size, uint8_t* data) {
+    char lText[500];
+    uint16_t spent = 0;
+    uint16_t inCnt = 0;
+    while ((spent < 500) && (inCnt < size)) {
+        spent += snprintf(lText + spent, (500 - spent), "%02x ", data[inCnt++]);
+    }
+    dlog(file, line, lText);
+}
+
 size_t Log::getLogBufferNumEntries() {
     return queue_get_level(&logQueue);
 }
@@ -105,4 +115,8 @@ void dlog(char* file, uint32_t line, char* text, ...) {
     va_end(args);
 
     Log::dlog(file, line, buf);
+}
+
+void dloghex(char* file, uint32_t line, uint8_t size, uint8_t* data) {
+    Log::dloghex(file, line, size, data);
 }

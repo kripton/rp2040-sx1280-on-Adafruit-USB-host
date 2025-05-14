@@ -60,6 +60,8 @@ add_custom_target(fsdata
 include(${CMAKE_CURRENT_LIST_DIR}/lib/libb64/CMakeLists.txt)
 include(${CMAKE_CURRENT_LIST_DIR}/lib/jsoncpp/interfaceLibForPicoSDK.cmake)
 
+add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/lib/RadioLib" "${CMAKE_CURRENT_BINARY_DIR}/RadioLib")
+
 ## Extra stuff from TinyUSB, that is not part of tinyusb_device library
 set(PICO_TINYUSB_PATH ${PICO_SDK_PATH}/lib/tinyusb)
 set(TINYUSB_LIBNETWORKING_SOURCES
@@ -124,6 +126,8 @@ string(APPEND CMAKE_EXE_LINKER_FLAGS "-Wl,--print-memory-usage")
 ## Pull in all pico-sdk + non-pico-sdk libraries
 ## Sorted alphabetically
 target_link_libraries(${CMAKE_PROJECT_NAME}
+    hardware_pwm
+    hardware_spi
     jsoncpp
     libb64
     lwipallapps
@@ -132,6 +136,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     pico_stdlib
     pico_time
     pico_unique_id
+    RadioLib
     tinyusb_board
     tinyusb_device
 )

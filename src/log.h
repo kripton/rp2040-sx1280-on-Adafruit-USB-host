@@ -15,6 +15,7 @@ class Log {
   public:
     void init();
     static void dlog(char* file, uint32_t line, char* text);
+    static void dloghex(char* file, uint32_t line, uint8_t size, uint8_t* data);
     static size_t getLogBufferNumEntries();
     static size_t getLogBuffer(char* buffer, size_t size);
     static void clearLogBuffer();
@@ -39,8 +40,10 @@ extern "C" {
 //       https://www.raspberrypi.org/forums/viewtopic.php?f=145&t=315365
 
 #define LOG(text, ...) dlog((char*)__FILE__, __LINE__, (char*)text, ##__VA_ARGS__)
+#define LOGHEX(size, data) dloghex((char*)__FILE__, __LINE__, size, data)
 
 void dlog(char* file, uint32_t line, char* text, ...);
+void dloghex(char* file, uint32_t line, uint8_t size, uint8_t* data);
 
 #ifdef __cplusplus
 }
