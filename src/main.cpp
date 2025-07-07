@@ -6,10 +6,15 @@ extern "C" {
 
     #include "pico/stdlib.h"
     #include "pico/multicore.h"
+    #include "hardware/pio.h"
     #include "stdio_usb.h"
 
     #include "pins.h"
     #include "picotool_binary_information.h"
+
+    #include "uart_rx.pio.h"
+    #include "uart_tx.pio.h"
+    #include "wait_irq_and_put_low.pio.h"
 
     #include "tusb_lwip_glue.h"
 }
@@ -46,6 +51,10 @@ volatile bool receivedFlag = false;
 PicoHal* hal = new PicoHal(SPI_PORT, SPI_MISO, SPI_MOSI, SPI_SCK);
 SX1280 radio = new Module(hal, SX1280_NSS, SX1280_DIO1, SX1280_NRST, SX1280_BUSY);
 
+// PIO program offsets
+int offsetTx;
+int offsetRx;
+
 void core1_tasks(void);
 
 void setFlag(void) {
@@ -54,12 +63,12 @@ void setFlag(void) {
   }
 
 int main() {
-    // Overclock the board to 199MHz. According to
+    // Overclock the board to 200MHz. According to
     // https://www.youtube.com/watch?v=G2BuoFNLo this should be
     // totally safe with the default 1.10V Vcore
     // However, we use 1.15V now since that is the "default" since SDK 2.1.1
     vreg_set_voltage(VREG_VOLTAGE_1_15);
-    set_sys_clock_khz(198000, true);
+    set_sys_clock_khz(200000, true);
 
     //stdio_init_all();
     logger.init();
@@ -79,6 +88,15 @@ int main() {
     dhcpd_init();
 
     webServer.init();
+
+
+    // UART TX is on PIO0 (since that is what one does first)
+    offsetTx = pio_add_program(pio0, &uart_tx_program);
+
+    // UART RX is on PIO1 (since that is what one does second)
+    offsetRx = pio_add_program(pio1, &uart_rx_program);
+
+    uart_tx_program_init(pio0, 0, offsetTx, 24, 25, 19200);
 
     // SETUP COMPLETE
     LOG("SYSTEM: SETUP COMPLETE");
@@ -114,6 +132,23 @@ void core1_tasks() {
     while (true) {
         //LOG("Core1 idling about ...");
 
+        // First byte is length-1, follow by data.
+        // do NOT use _puts() here since it will break on \x00
+
+        uart_tx_program_putc(pio0, 0, '\x07'); // 8 byte in total
+        uart_tx_program_putc(pio0, 0, '\x01'); // slave address
+        uart_tx_program_putc(pio0, 0, '\x04'); // Function code: Read input registers
+        uart_tx_program_putc(pio0, 0, '\x00'); // Offset, high byte
+        uart_tx_program_putc(pio0, 0, '\x34'); // Offset, low byte
+        uart_tx_program_putc(pio0, 0, '\x00'); // Word count, high byte
+        uart_tx_program_putc(pio0, 0, '\x02'); // Word count, low byte
+        uart_tx_program_putc(pio0, 0, '\x30'); // CRC
+        uart_tx_program_putc(pio0, 0, '\x05'); // CRC
+
+        sleep_ms(2000);
+    }
+
+    /*
         if (!radioInitDone) {
             state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
             uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
@@ -214,5 +249,5 @@ void core1_tasks() {
 
         //gpio_put(PICO_DEFAULT_LED_PIN, !gpio_get(PICO_DEFAULT_LED_PIN);
         sleep_us(500);
-    }
+    }*/
 };

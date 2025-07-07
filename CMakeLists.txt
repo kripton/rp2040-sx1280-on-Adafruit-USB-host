@@ -95,9 +95,10 @@ add_executable(${CMAKE_PROJECT_NAME}
 )
 
 ## Add our rp2040-PIO programs here
-#pico_generate_pio_header(${CMAKE_PROJECT_NAME}
-#    ${CMAKE_CURRENT_LIST_DIR}/src/tx16.pio
-#)
+pico_generate_pio_header(${CMAKE_PROJECT_NAME}
+    ${CMAKE_CURRENT_LIST_DIR}/src/uart_rx.pio
+    ${CMAKE_CURRENT_LIST_DIR}/src/uart_tx.pio
+)
 
 ## Config for the jsoncpp library
 target_compile_definitions(${CMAKE_PROJECT_NAME}
@@ -126,6 +127,7 @@ string(APPEND CMAKE_EXE_LINKER_FLAGS "-Wl,--print-memory-usage")
 ## Pull in all pico-sdk + non-pico-sdk libraries
 ## Sorted alphabetically
 target_link_libraries(${CMAKE_PROJECT_NAME}
+    hardware_pio
     hardware_pwm
     hardware_spi
     jsoncpp
