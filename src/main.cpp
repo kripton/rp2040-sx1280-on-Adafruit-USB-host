@@ -11,6 +11,7 @@ extern "C" {
 
     #include "pins.h"
     #include "picotool_binary_information.h"
+    #include "crc_modbus.h"
 
     #include "uart_rx.pio.h"
     #include "uart_tx.pio.h"
@@ -97,6 +98,7 @@ int main() {
     offsetRx = pio_add_program(pio1, &uart_rx_program);
 
     uart_tx_program_init(pio0, 0, offsetTx, 24, 25, 19200);
+    uart_rx_program_init(pio1, 0, offsetRx, 24, 19200);
 
     // SETUP COMPLETE
     LOG("SYSTEM: SETUP COMPLETE");
@@ -123,6 +125,90 @@ int main() {
 
 #define RX_IRQ
 
+int modbus_request(uint8_t slave_address, uint16_t function_code,
+                   uint16_t start_address, uint16_t word_count,
+                   uint8_t* response_buffer, size_t response_buffer_size) {
+
+    // Prepare the request
+    uint8_t request[12];
+    request[0] = 0x07; // Length - 1 (7 bytes of data)
+    request[1] = slave_address; // Slave address
+    request[2] = function_code; // Function code
+    request[3] = (start_address >> 8) & 0xFF; // Start address high byte
+    request[4] = start_address & 0xFF; // Start address low byte
+    request[5] = (word_count >> 8) & 0xFF; // Word count high byte
+    request[6] = word_count & 0xFF; // Word count low byte
+
+    uint16_t crc = crc_init();
+    crc = crc_update(crc, request+1, 6);
+    crc = crc_finalize(crc);
+
+    request[7] = crc & 0xFF; // CRC low byte
+    request[8] = (crc >> 8) & 0xFF; // CRC high byte
+    LOG("[UART TX] Sending request: ");
+    LOGHEX(9, request);
+    // Send the request
+    uart_tx_program_init(pio0, 0, offsetTx, 24, 25, 19200);
+    for (size_t i = 0; i < 9; i++) {
+        uart_tx_program_putc(pio0, 0, request[i]);
+    }
+    sleep_us(4760); // Wait for the data to be sent
+    LOG("[UART TX] Request sent, waiting for response...");
+    // MUX our data pin to PIO1 for receiving
+    uart_rx_program_init(pio1, 0, offsetRx, 24, 19200);
+    // Wait for the response
+    uint8_t byte_count;
+    size_t bytes_received = 0;
+    uint16_t crc_received;
+
+    for (size_t i = 0; i < response_buffer_size; i++) {
+        uint8_t c = uart_rx_program_getc(pio1, 0, 2);
+
+        if (i == 0 && c != slave_address) {
+            LOG("[UART RX] Slave address does not match. Expected: %02x, Got: %02x", slave_address, c);
+            return -1; // Invalid response
+        }
+
+        if (i == 1 && c != function_code) {
+            LOG("[UART RX] Function code does not match. Expected: %02x, Got: %02x", function_code, c);
+            return -1; // Invalid response
+        }
+
+        if (i == 2) {
+            // Byte count (Raw payload, excluding slave address, function code and CRC)
+            byte_count = c;
+        }
+
+        if (i == (3 + byte_count)) {
+            crc_received = (c << 8); // High byte of CRC
+        } else if (i == (4 + byte_count)) {
+            crc_received |= c; // Low byte of CRC
+            LOG("[UART RX] Received CRC: %04x", crc_received);
+            // Validate CRC
+            uint16_t crc_calculated = crc_init();
+            crc_calculated = crc_update(crc_calculated, response_buffer, 3 + byte_count);
+            crc_calculated = crc_finalize(crc_calculated);
+
+            // Swap the bytes for comparison
+            crc_calculated = (crc_calculated >> 8) | (crc_calculated << 8);
+
+            if (crc_calculated != crc_received) {
+                LOG("[UART RX] CRC mismatch! Expected: %04x, Got: %04x", crc_calculated, crc_received);
+                return -1; // Invalid response
+            }
+            LOG("[UART RX] CRC valid.");
+            return bytes_received; // Return the number of bytes received
+            break; // Exit loop after receiving the full response
+        }
+
+        response_buffer[i] = c;
+        bytes_received++;
+        LOG("[UART RX] Got byte: %02x", c);
+    }
+
+    return bytes_received;
+}
+
 // Core1: I2C (GPIO expander), SPI to the Timos, Status LEDs,
 //        Config reset (Button reading and state machine but NOT flash)
 void core1_tasks() {
@@ -135,6 +221,13 @@ void core1_tasks() {
         // First byte is length-1, follow by data.
         // do NOT use _puts() here since it will break on \x00
 
+        modbus_request(0x01, 0x04, 0x0034, 0x0002, byteArr, sizeof(byteArr));
+
+        /*
+        // MUX our data pin to PIO0
+        uart_tx_program_init(pio0, 0, offsetTx, 24, 25, 19200);
+
+        // Send the data
         uart_tx_program_putc(pio0, 0, '\x07'); // 8 byte in total
         uart_tx_program_putc(pio0, 0, '\x01'); // slave address
         uart_tx_program_putc(pio0, 0, '\x04'); // Function code: Read input registers
@@ -144,6 +237,33 @@ void core1_tasks() {
         uart_tx_program_putc(pio0, 0, '\x02'); // Word count, low byte
         uart_tx_program_putc(pio0, 0, '\x30'); // CRC
         uart_tx_program_putc(pio0, 0, '\x05'); // CRC
+        
+        sleep_us(4760); // Wait for the data to be sent
+
+        // MUX our data pin to PIO1
+        uart_rx_program_init(pio1, 0, offsetRx, 24, 19200);
+
+        // Wait for the response
+        char c;
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        c = uart_rx_program_getc(pio1, 0, 10);
+        LOG("[UART RX] Got byte: %02x", c);
+        */
 
         sleep_ms(2000);
     }
