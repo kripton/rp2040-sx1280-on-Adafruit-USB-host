@@ -240,11 +240,11 @@ void core1_tasks() {
     gpio_set_dir(13, GPIO_OUT);
 
     // Init the SX1280 radio
-    //state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
     radio.setRfSwitchPins(4, 13);
-    state = radio.beginFLRC();
-    //uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
-    //state = radio.setSyncWord(syncWord, 4);
+    state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
+    //state = radio.beginFLRC();
+    uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
+    state = radio.setSyncWord(syncWord, 4);
     if (state == RADIOLIB_ERR_NONE) {
         LOG("SX1280 INIT OK");
     } else {
@@ -322,12 +322,14 @@ void core1_tasks() {
 
 
             if (stateRx == RADIOLIB_ERR_NONE) {
-                //float rssi = radio.getRSSI(); //dBm
-                //float snr = radio.getSNR();   // dB
-                //float fError = radio.getFrequencyError(); // Hz
-                //LOG("[SX1280] Received packet! Size: %d, RSSI: %f dBm, SNR: %f dB, fError: %f, Data:", numBytes, rssi, snr, fError);
-                LOG("[SX1280] Received packet! Size: %d, Data:", numBytes);
-                LOGHEX(numBytes, radioArray);
+                if (numBytes == 10) {
+                    //float rssi = radio.getRSSI(); //dBm
+                    //float snr = radio.getSNR();   // dB
+                    //float fError = radio.getFrequencyError(); // Hz
+                    //LOG("[SX1280] Received packet! Size: %d, RSSI: %f dBm, SNR: %f dB, fError: %f, Data:", numBytes, rssi, snr, fError);
+                    LOG("[SX1280] Received packet! Size: %d, Data:", numBytes);
+                    LOGHEX(numBytes, radioArray);
+                }
             } else if (stateRx == RADIOLIB_ERR_RX_TIMEOUT) {
                 LOG("[SX1280] Timed out while waiting for packet!");
             } else {
