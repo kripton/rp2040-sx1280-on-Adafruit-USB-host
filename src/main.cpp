@@ -57,12 +57,15 @@ SX1280 radio = new Module(hal, SX1280_NSS, SX1280_DIO1, SX1280_NRST, SX1280_BUSY
 int offsetTx;
 int offsetRx;
 
-void core1_tasks(void);
+uint32_t localMeterSerial = 0;
 
-void setFlag(void) {
-    LOG("SETTING FLAG");
-    receivedFlag = true;
-  }
+void __no_inline_not_in_flash_func(setFlag)(void) {
+  // we got a packet, set the flag
+  //LOG("FLAG");
+  receivedFlag = true;
+}
+
+void core1_tasks(void);
 
 int main() {
     // Overclock the board to 200MHz. According to
@@ -124,8 +127,6 @@ int main() {
     }
 };
 
-#define RX_IRQ
-
 int modbus_request(uint8_t slave_address, uint16_t function_code,
                    uint16_t start_address, uint16_t word_count,
                    uint8_t* response_buffer, size_t response_buffer_size) {
@@ -164,6 +165,7 @@ int modbus_request(uint8_t slave_address, uint16_t function_code,
 
     for (size_t i = 0; i < response_buffer_size; i++) {
         uint8_t c = uart_rx_program_getc(pio1, 0, 10);
+        //LOG("[UART RX] Got byte: %02x", c);
 
         if (i == 0 && c != slave_address) {
             //LOG("[UART RX] Slave address does not match. Expected: %02x, Got: %02x", slave_address, c);
@@ -196,14 +198,13 @@ int modbus_request(uint8_t slave_address, uint16_t function_code,
                 //LOG("[UART RX] CRC mismatch! Expected: %04x, Got: %04x", crc_calculated, crc_received);
                 return -1; // Invalid response
             }
-            //LOG("[UART RX] CRC valid.");
+            //LOG("[UART RX] CRC valid. Expected and got: %04x", crc_received);
             return bytes_received; // Return the number of bytes received
             break; // Exit loop after receiving the full response
         }
 
         response_buffer[i] = c;
         bytes_received++;
-        //LOG("[UART RX] Got byte: %02x", c);
     }
 
     return bytes_received;
@@ -215,139 +216,129 @@ void core1_tasks() {
     int state;
     int retVal;
     uint8_t curModbusReg = 0xff; // Current Modbus register to read
-    uint8_t byteArr[255];
+    uint8_t modbusArray[16];
+    uint8_t radioArray[16];
 
     uint8_t numModbusReg = sizeof(eastron_sdm72m_input_registers) / sizeof(eastron_sdm72m_input_registers[0]);
+
+    // Startup: Read the meter's serial number
+    retVal = modbus_request(0x01, 0x03, 0xFC00, 0x0002, modbusArray, sizeof(modbusArray));
+    if (retVal > 0) {
+        memcpy(&localMeterSerial, modbusArray+3, 4);
+
+        // Also store the meter's serial in the array we will be sending
+        memcpy(radioArray, modbusArray+3, 4);
+    }
+
+#pragma region RadioInit
+    // RX EN
+    gpio_init(4);
+    gpio_set_dir(4, GPIO_OUT);
+
+    // TX EN
+    gpio_init(13);
+    gpio_set_dir(13, GPIO_OUT);
+
+    // Init the SX1280 radio
+    //state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
+    radio.setRfSwitchPins(4, 13);
+    state = radio.beginFLRC();
+    //uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
+    //state = radio.setSyncWord(syncWord, 4);
+    if (state == RADIOLIB_ERR_NONE) {
+        LOG("SX1280 INIT OK");
+    } else {
+        LOG("SX1280 INIT ERROR: %d", state);
+    }
+
+    radioInitDone = true;
+
+    if (!localMeterSerial) {
+        radio.setPacketReceivedAction(setFlag);
+        radio.startReceive();
+    }
+#pragma endregion
 
     while (true) {
         //LOG("Core1 idling about ...");
 
-        curModbusReg++;
-        if (curModbusReg >= numModbusReg) {
-            LOG("Core1: All registers read, resetting to 0");
-            curModbusReg = 0;
-        }
-
-        retVal = modbus_request(0x01, 0x04, eastron_sdm72m_input_registers[curModbusReg], 0x0002, byteArr, sizeof(byteArr));
-
-        if (retVal > 0) {
-            // Convert and print the received data
-            float val;
-            memcpy(&val, byteArr+3, sizeof(float));
-
-            // Reverse the 4 bytes of val
-            uint8_t* valBytes = (uint8_t*)&val;
-            valBytes[0] = byteArr[6];
-            valBytes[1] = byteArr[5];
-            valBytes[2] = byteArr[4];
-            valBytes[3] = byteArr[3];
-            LOG("Register %04x: %f", eastron_sdm72m_input_registers[curModbusReg], val);
-        }
-
-        // 20ms works as well, 10ms crashes the SDM72M
-        sleep_ms(40);
-    }
-
-    /*
-        if (!radioInitDone) {
-            state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
-            uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
-            state = radio.setSyncWord(syncWord, 4);
-            if (state == RADIOLIB_ERR_NONE) {
-                LOG("SX1280 INIT OK");
-            } else {
-                LOG("SX1280 INIT ERROR: %d", state);
+#pragma region ModbusReading
+        if (localMeterSerial) {
+            curModbusReg++;
+            if (curModbusReg >= numModbusReg) {
+                LOG("Core1: All registers read, resetting to 0");
+                curModbusReg = 0;
             }
 
-            // set the function that will be called
-            // when new packet is received
-            radio.setPacketReceivedAction(setFlag);
+            retVal = modbus_request(0x01, 0x04, eastron_sdm72m_input_registers[curModbusReg], 0x0002, modbusArray, sizeof(modbusArray));
 
-            radioInitDone = true;
+            if (retVal > 0) {
+                // Convert and print the received data
+                float val;
+                memcpy(&val, modbusArray+3, sizeof(float));
 
-            // RX EN
-            gpio_init(4);
-            gpio_set_dir(4, GPIO_OUT);
+                // Reverse the 4 bytes of val
+                uint8_t* valBytes = (uint8_t*)&val;
+                valBytes[0] = modbusArray[6];
+                valBytes[1] = modbusArray[5];
+                valBytes[2] = modbusArray[4];
+                valBytes[3] = modbusArray[3];
+                LOG("Register %04x: %f", eastron_sdm72m_input_registers[curModbusReg], val);
+            }
 
-            // TX EN
-            gpio_init(13);
-            gpio_set_dir(13, GPIO_OUT);
-
-#ifdef RX_IRQ
-            // put module to listen mode
-            //radio.startReceive();
-            receivedFlag = true;
-#endif
+            // 20ms works as well, 10ms crashes the SDM72M. 40ms is safe
+            // However, we wait 10ms after TX ON, so we use 30ms here
+            sleep_ms(30);
         }
+#pragma endregion
 
-#ifdef TX
-        gpio_put(13, true);
-        sleep_ms(20);
-        uint32_t ms = to_ms_since_boot(get_absolute_time());
-        memcpy(byteArr, (void*)&ms, 4);
-        memcpy(byteArr+4, (void*)&ms, 4);
-        state = radio.transmit(byteArr, 8);
-        if (state == RADIOLIB_ERR_NONE) {
-            LOG("[SX1280] Packet transmitted successfully!");
-        } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
-            LOG("[SX1280] Packet too long!");
-        } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
-            LOG("[SX1280] Timed out while transmitting!");
-        } else {
-            LOG("[SX1280] Failed to transmit packet, code %d", state);
+#pragma region RadioSending
+        if (localMeterSerial) {
+            // Copy register address
+            memcpy(radioArray+4, &(eastron_sdm72m_input_registers[curModbusReg]) , 2);
+            // Copy the value we just read
+            memcpy(radioArray+6, modbusArray+3, 4);
+
+            state = radio.transmit(radioArray, 10);
+            if (state == RADIOLIB_ERR_NONE) {
+                LOG("[SX1280] Packet transmitted successfully!");
+            } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
+                LOG("[SX1280] Packet too long!");
+            } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
+                LOG("[SX1280] Timed out while transmitting!");
+            } else {
+                LOG("[SX1280] Failed to transmit packet, code %d", state);
+            }
         }
-        gpio_put(13, false);
-#endif
+#pragma endregion
 
-#ifdef RX_BLOCKING
-        gpio_put(4, true);
-        sleep_ms(20);
-        state = radio.receive(byteArr, 8);
-        if (state == RADIOLIB_ERR_NONE) {
-            LOG("[SX1280] Received packet! Data:");
-            LOGHEX(8, byteArr);
-        } else if (state == RADIOLIB_ERR_RX_TIMEOUT) {
-            LOG("[SX1280] Timed out while waiting for packet!");
-        } else {
-            LOG("[SX1280] Failed to receive packet, code %d", state);
-        }
-        gpio_put(4, false);
-#endif
-
-#ifdef RX_IRQ
-        if (receivedFlag) {
+#pragma region RadioRX
+        if (!localMeterSerial && receivedFlag) {
             // reset flag
             receivedFlag = false;
 
-            // you can also read received data as byte array
             int numBytes = radio.getPacketLength();
-            state = radio.readData(byteArr, numBytes);
+            int stateRx = radio.readData(radioArray, numBytes);
 
-            if (state == RADIOLIB_ERR_NONE) {
-                // packet was successfully received
-                LOG("[SX1280] Received packet! Data: ");
 
-                // print data of the packet
-                LOGHEX(8, byteArr);
-
-                // print RSSI (Received Signal Strength Indicator)
-                LOG("[SX1280] RSSI:\t\t%f dBm", radio.getRSSI());
-
-            } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
-                // packet was received, but is malformed
-                LOG("CRC error!");
-
+            if (stateRx == RADIOLIB_ERR_NONE) {
+                //float rssi = radio.getRSSI(); //dBm
+                //float snr = radio.getSNR();   // dB
+                //float fError = radio.getFrequencyError(); // Hz
+                //LOG("[SX1280] Received packet! Size: %d, RSSI: %f dBm, SNR: %f dB, fError: %f, Data:", numBytes, rssi, snr, fError);
+                LOG("[SX1280] Received packet! Size: %d, Data:", numBytes);
+                LOGHEX(numBytes, radioArray);
+            } else if (stateRx == RADIOLIB_ERR_RX_TIMEOUT) {
+                LOG("[SX1280] Timed out while waiting for packet!");
             } else {
-                // some other error occurred
-                LOG("failed, code %d", state);
+                LOG("[SX1280] Failed to receive packet, code %d", stateRx);
             }
 
             // put module back to listen mode
             radio.startReceive();
         }
-#endif
+#pragma endregion
 
-        //gpio_put(PICO_DEFAULT_LED_PIN, !gpio_get(PICO_DEFAULT_LED_PIN);
-        sleep_us(500);
-    }*/
-};
+    } // End of while(true)
+
+}
