@@ -13,6 +13,9 @@
 
 extern char __StackLimit; /* Set by linker.  */
 
+// Borrowed from main.cpp
+extern Json::Value storage;
+
 static const tCGI cgi_handlers[] = {
     {"api/reset/boot",
     cgi_api_reset_boot},
@@ -156,6 +159,13 @@ u16_t WebServer::ssi_handler(const char *ssi_tag_name, char *pcInsert, int iInse
         }
 
         output_string = Json::writeString(wbuilder, output);
+        return snprintf(pcInsert, iInsertLen, "%s", output_string.c_str());
+    }
+    if (tagName == "Meters")
+    {
+        storage["tsNow"] = (Json::UInt)(time_us_64() / 1000);
+
+        output_string = Json::writeString(wbuilder, storage);
         return snprintf(pcInsert, iInsertLen, "%s", output_string.c_str());
     }
     else if (tagName == "LogGet")
