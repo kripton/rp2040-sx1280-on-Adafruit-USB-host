@@ -35,6 +35,8 @@ extern "C" {
 // include the library
 #include <RadioLib.h>
 
+#include "json/json.h"
+
 // include the hardware abstraction layer
 #include "hal/RPiPico/PicoHal.h"
 
@@ -59,6 +61,8 @@ int offsetRx;
 
 uint32_t localMeterSerial = 0;
 
+Json::Value storage;
+
 void __no_inline_not_in_flash_func(setFlag)(void) {
   // we got a packet, set the flag
   //LOG("FLAG");
@@ -68,6 +72,7 @@ void __no_inline_not_in_flash_func(setFlag)(void) {
 void core1_tasks(void);
 
 int main() {
+#pragma region Init
     // Overclock the board to 200MHz. According to
     // https://www.youtube.com/watch?v=G2BuoFNLo this should be
     // totally safe with the default 1.10V Vcore
@@ -117,6 +122,8 @@ int main() {
     // Now get core1 running ...
     LOG("SYSTEM: Starting core 1 ...");
     multicore_launch_core1(core1_tasks);
+
+#pragma endregion
 
     while (true) {
         tud_task();
@@ -294,12 +301,15 @@ void core1_tasks() {
 
 #pragma region RadioSending
         if (localMeterSerial) {
+            // Meter serial number is already in the packet
+            // Set this packet type to "Modbus raw value"
+            radioArray[4] = 0x01;
             // Copy register address
-            memcpy(radioArray+4, &(eastron_sdm72m_input_registers[curModbusReg]) , 2);
+            memcpy(radioArray+5, &(eastron_sdm72m_input_registers[curModbusReg]) , 2);
             // Copy the value we just read
-            memcpy(radioArray+6, modbusArray+3, 4);
+            memcpy(radioArray+7, modbusArray+3, 4);
 
-            state = radio.transmit(radioArray, 10);
+            state = radio.transmit(radioArray, 11);
             if (state == RADIOLIB_ERR_NONE) {
                 LOG("[SX1280] Packet transmitted successfully!");
             } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
@@ -317,18 +327,49 @@ void core1_tasks() {
             // reset flag
             receivedFlag = false;
 
+            uint8_t* bytes;
+
             int numBytes = radio.getPacketLength();
             int stateRx = radio.readData(radioArray, numBytes);
 
-
             if (stateRx == RADIOLIB_ERR_NONE) {
-                if (numBytes == 10) {
+                if (numBytes == 11) {
                     //float rssi = radio.getRSSI(); //dBm
                     //float snr = radio.getSNR();   // dB
                     //float fError = radio.getFrequencyError(); // Hz
                     //LOG("[SX1280] Received packet! Size: %d, RSSI: %f dBm, SNR: %f dB, fError: %f, Data:", numBytes, rssi, snr, fError);
-                    LOG("[SX1280] Received packet! Size: %d, Data:", numBytes);
+                    //LOG("[SX1280] Received packet! Size: %d, Data:", numBytes);
                     LOGHEX(numBytes, radioArray);
+
+                    uint32_t meterSerial;
+                    bytes = (uint8_t*)&meterSerial;
+                    bytes[0] = radioArray[3];
+                    bytes[1] = radioArray[2];
+                    bytes[2] = radioArray[1];
+                    bytes[3] = radioArray[0];
+
+                    char meterSerialString[12];
+                    snprintf(meterSerialString, 12, "%u", meterSerial);
+
+                    uint8_t type = radioArray[4];
+
+                    if (type == 0x01) {
+                        // Modbus raw value
+                        uint16_t regAddr;
+                        memcpy(&regAddr, radioArray+5, 2);
+                        char regStr[5];
+                        snprintf(regStr, 5, "%04x", regAddr);
+
+                        char valStr[10];
+                        snprintf(valStr, 10, "%02x%02x%02x%02x", radioArray[7], radioArray[8], radioArray[9], radioArray[10]);
+
+                        LOG("Received Modbus value: Meter Serial: %d, Register: %04x, Value: %s", meterSerial, regAddr, valStr);
+
+                        storage["remote"][meterSerialString][regStr]["ts"] = (Json::UInt)(time_us_64() / 1000);
+                        storage["remote"][meterSerialString][regStr]["val"] = valStr;
+                    } else {
+                        LOG("[SX1280] Unknown packet type: %02x", type);
+                    }
                 }
             } else if (stateRx == RADIOLIB_ERR_RX_TIMEOUT) {
                 LOG("[SX1280] Timed out while waiting for packet!");
