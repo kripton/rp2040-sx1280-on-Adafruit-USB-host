@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 
+// Source:
+// https://data.stromzähler.eu/manuals/eastron_sdm72dmv2.pdf
+
 uint16_t eastron_sdm72m_input_registers[] = {
     0x0000, // Ph1 Voltage to Neutral,
     0x0002, // Ph2 Voltage to Neutral,
@@ -64,7 +67,7 @@ uint16_t eastron_sdm72m_holding_registers[] = {
     0x003A, // Automatic scroll display time (0..60)
     0x003C, // Backlight time (0..121 with 0=always on and 121=always off)
     0x0056, // Pulse 1 Energy type (1=import active, 2=total active, 4=export active)
-    0xF010, // 0003 = reset energy info
+    0xF010, // Write 0x0003 to reset energy info
 
     // Only in manual for SDM72M-V2:
     0xFC00, // Serial number, 4byte
