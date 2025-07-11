@@ -80,6 +80,8 @@
 // https://github.com/SuperHouse/esp-open-rtos/tree/master/extras/httpd
 // https://github.com/lujji/esp-httpd
 
+#define HTTPD_SERVER_AGENT "lwIP/" LWIP_VERSION_STRING
+
 #define LWIP_HTTPD_SUPPORT_11_KEEPALIVE 1
 
 #define HTTPD_USE_CUSTOM_FSDATA         1
