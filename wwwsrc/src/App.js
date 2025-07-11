@@ -37,7 +37,7 @@ export default function App() {
   // served by localhost during development but talk to the API of
   // a REAL dongle
   window.urlPrefix = '';
-  window.urlPrefix = 'http://169.254.31.1'; // comment line if not used; NEVER COMMIT
+  //window.urlPrefix = 'http://169.254.31.1'; // comment line if not used; NEVER COMMIT
 
   return (
     <Router>

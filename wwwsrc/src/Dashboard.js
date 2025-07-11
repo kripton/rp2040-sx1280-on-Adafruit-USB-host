@@ -1,4 +1,5 @@
 import React from 'react';
+import moment from "moment";
 
 class Dashboard extends React.Component {
     constructor() {
@@ -57,6 +58,16 @@ class Dashboard extends React.Component {
         }
     }
 
+    getHighestTimeStamp(meter) {
+        let highestTimeStamp = 0;
+        for (const regId in meter) {
+            if (meter[regId].ts && meter[regId].ts > highestTimeStamp) {
+                highestTimeStamp = meter[regId].ts;
+            }
+        }
+        return highestTimeStamp;
+    }
+
     render() {
         return (
             <>
@@ -94,10 +105,18 @@ class Dashboard extends React.Component {
                             }
                             for (const meterId in this.state.meters.remote) {
                                 const meter = this.state.meters.remote[meterId];
+                                const highestTimeStamp = this.getHighestTimeStamp(meter); // In "ms since boot" of receiver
+                                const bootTime = new Date(Date.now() - this.state.meters.tsNow);
+                                const lastUpdate = new Date(bootTime.valueOf() + highestTimeStamp);
+                                let luDiffMs = this.state.meters.tsNow -highestTimeStamp;
+                                if (luDiffMs < 0) {
+                                    luDiffMs = 1;
+                                }
+                                //const dur = moment.duration(luDiffMs, 'milliseconds').humanize();
                                 meters.push(
                                     <div key={"card_" + meterId} className="card">
                                         <div className="card-body">
-                                            <h5 className="card-title">Meter {meterId}</h5>
+                                            <h5 className="card-title">Meter {meterId}. Last updated: {moment(lastUpdate).fromNow()} ({(luDiffMs / 1000).toFixed(0)}s)</h5>
                                             <table className="card-text"><tbody>
                                                 <tr>
                                                     <td><b>U1:</b></td><td align='right'>{this.regToFloat(meter, "0000")}V</td>
