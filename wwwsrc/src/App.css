@@ -1,0 +1,32 @@
+/* Disable pull-to-refresh since it sucks on the Console page with all its vertical faders */
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+html, body {overscroll-behavior: none;}
+
+.noscroll {
+  margin: 0; height: 100%; overflow: hidden;
+}
+
+.hidden { display:none !important; }
+
+.navbar-nav li > a.active {
+  text-decoration: underline;
+  font-weight: bold;
+}
+
+table > tbody > tr > td > table > tbody > tr {
+  border-style: hidden;
+}
