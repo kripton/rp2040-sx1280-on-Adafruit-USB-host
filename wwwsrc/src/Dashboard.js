@@ -101,22 +101,42 @@ class Dashboard extends React.Component {
                         </div>
                         {(() => {
                             let meters = [];
-                            if (Object.entries(this.state.meters.remote).length > 0) {
-                            }
                             for (const meterId in this.state.meters.remote) {
+
+                                // A meter is only considrered as a meter if the following register values are known:
+                                // U1, U2, U3, I1, I2, I3, P1, P2, P3, Pf1, Pf2, Pf3, f
+                                if (!this.state.meters.remote[meterId].hasOwnProperty("0000") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0002") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0004") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0006") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0008") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("000a") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("000c") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("000e") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0010") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("001e") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0020") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0022") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("0046") ||
+                                    !this.state.meters.remote[meterId].hasOwnProperty("00e0")) {
+                                    console.warn(`Meter ${meterId} does not have all required registers. Skipping.`);
+                                    continue;
+                                }
+
                                 const meter = this.state.meters.remote[meterId];
                                 const highestTimeStamp = this.getHighestTimeStamp(meter); // In "ms since boot" of receiver
                                 const bootTime = new Date(Date.now() - this.state.meters.tsNow);
-                                const lastUpdate = new Date(bootTime.valueOf() + highestTimeStamp);
+                                let lastUpdate = new Date(bootTime.valueOf() + highestTimeStamp);
                                 let luDiffMs = this.state.meters.tsNow -highestTimeStamp;
                                 if (luDiffMs < 0) {
                                     luDiffMs = 1;
+                                    lastUpdate = new Date(Date.now());
                                 }
                                 //const dur = moment.duration(luDiffMs, 'milliseconds').humanize();
                                 meters.push(
                                     <div key={"card_" + meterId} className="card">
                                         <div className="card-body">
-                                            <h5 className="card-title">Meter {meterId}. Last updated: {moment(lastUpdate).fromNow()} ({(luDiffMs / 1000).toFixed(0)}s)</h5>
+                                            <h5 className="card-title">Meter {meterId}; RSSI: {meter.rssi}; Last updated: {moment(lastUpdate).fromNow()} ({(luDiffMs / 1000).toFixed(0)}s) ({highestTimeStamp})</h5>
                                             <table className="card-text"><tbody>
                                                 <tr>
                                                     <td><b>U1:</b></td><td align='right'>{this.regToFloat(meter, "0000")}V</td>

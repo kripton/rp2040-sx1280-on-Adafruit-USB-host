@@ -248,8 +248,8 @@ void core1_tasks() {
 
     // Init the SX1280 radio
     radio.setRfSwitchPins(4, 13);
-    state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
-    //state = radio.beginFLRC();
+    //state = radio.beginFLRC(2400.0, 1300, 3, 10, 16, 2);
+    state = radio.beginFLRC(2400.0, 260, 3, 13, 16, 2);
     uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
     state = radio.setSyncWord(syncWord, 4);
     if (state == RADIOLIB_ERR_NONE) {
@@ -351,6 +351,13 @@ void core1_tasks() {
                     char meterSerialString[12];
                     snprintf(meterSerialString, 12, "%u", meterSerial);
 
+                    float rssi = radio.getRSSI(); // dBm
+                    char rssiStr[16];
+                    snprintf(rssiStr, 16, "%f dBm", rssi);
+                    if ((rssi > 0.1) || (rssi < -0.1)) {
+                        storage["remote"][meterSerialString]["rssi"] = rssiStr;
+                    }
+
                     uint8_t type = radioArray[4];
 
                     if (type == 0x01) {
@@ -363,7 +370,7 @@ void core1_tasks() {
                         char valStr[10];
                         snprintf(valStr, 10, "%02x%02x%02x%02x", radioArray[7], radioArray[8], radioArray[9], radioArray[10]);
 
-                        LOG("Received Modbus value: Meter Serial: %d, Register: %04x, Value: %s", meterSerial, regAddr, valStr);
+                        LOG("Received Modbus value: Meter Serial: %d, Register: %04x, Value: %s, RSSI: %s", meterSerial, regAddr, valStr, rssiStr);
 
                         storage["remote"][meterSerialString][regStr]["ts"] = (Json::UInt)(time_us_64() / 1000);
                         storage["remote"][meterSerialString][regStr]["val"] = valStr;
