@@ -10,6 +10,7 @@ class Dashboard extends React.Component {
             },
             loading: false,
             selectedTab: '',
+            lastUpdate: '',
         };
     }
 
@@ -35,7 +36,7 @@ class Dashboard extends React.Component {
                 (result) => {
                     if (result) {
                         console.log('Meters fetched: ', result);
-                        this.setState({ loading: false, meters: result });
+                        this.setState({ loading: false, meters: result, lastUpdate: moment().format('YYYY-MM-DDTHH:mm:ss') });
                     }
                 }
             ).finally(
@@ -73,7 +74,7 @@ class Dashboard extends React.Component {
             <>
                 <ul className="nav nav-tabs">
                     <li key="overview" className="nav-item" onClick={() => { this.setState({ selectedTab: '' }); }}>
-                        <a className={this.state.selectedTab == '' ? "nav-link active" : "nav-link"} aria-current="page" href="#">Overview</a>
+                        <a className={this.state.selectedTab == '' ? "nav-link active" : "nav-link"} aria-current="page" href="#">Overview.</a>
                     </li>
                     {(() => {
                         let meters = [];
@@ -96,7 +97,7 @@ class Dashboard extends React.Component {
                         <div className="card">
                             <div className="card-body">
                                 <h5 className="card-title">Overview</h5>
-                                <p className="card-text">This is the overview of the dashboard.</p>
+                                <p className="card-text">This is the overview of the dashboard.<br/>Last update: {this.state.lastUpdate}</p>
                             </div>
                         </div>
                         {(() => {
@@ -136,7 +137,7 @@ class Dashboard extends React.Component {
                                 meters.push(
                                     <div key={"card_" + meterId} className="card">
                                         <div className="card-body">
-                                            <h5 className="card-title">Meter {meterId}; RSSI: {meter.rssi}; Last updated: {moment(lastUpdate).fromNow()} ({(luDiffMs / 1000).toFixed(0)}s) ({highestTimeStamp})</h5>
+                                            <h5 className="card-title">Meter {meterId}<br/>RSSI: {meter.rssi}<br/>Last updated: {moment(lastUpdate).fromNow()} ({(luDiffMs / 1000).toFixed(0)}s) ({highestTimeStamp})</h5>
                                             <table className="card-text"><tbody>
                                                 <tr>
                                                     <td><b>U1:</b></td><td align='right'>{this.regToFloat(meter, "0000")}V</td>
