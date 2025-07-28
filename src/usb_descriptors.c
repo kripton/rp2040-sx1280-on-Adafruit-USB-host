@@ -347,7 +347,7 @@ bool tud_vendor_control_xfer_cb(uint8_t rhport, uint8_t stage, tusb_control_requ
           pico_get_unique_board_id(&board_id);
 
           desc_url = malloc(90);
-          uint32_t ip = 0x0100fea9UL;  // 169.254.0.1
+          uint32_t ip = 0x0100fe0aUL;  // 10.254.0.1
           ip = (ip & 0xff00ffff) | ((uint32_t)board_id.id[6] << 16);
           snprintf(desc_url->url, 85, "%ld.%ld.%ld.%ld", (ip & 0xff), ((ip >> 8) & 0xff), ((ip >> 16) & 0xff), ((ip >> 24) & 0xff));
           desc_url->bLength = 3 + strlen(desc_url->url);
@@ -431,7 +431,7 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     } else if (index == STRID_PRODUCT) {
       // Network interface name has been requested. Get our IP there
       char product[64];
-      uint32_t ip = 0x0100fea9UL;  // 169.254.0.1
+      uint32_t ip = 0x0100fe0aUL;  // 10.254.0.1
       ip = (ip & 0xff00ffff) | ((uint32_t)board_id.id[6] << 16);
       str = product;
       snprintf(product, 64, "%s %d.%d.%d.%d",

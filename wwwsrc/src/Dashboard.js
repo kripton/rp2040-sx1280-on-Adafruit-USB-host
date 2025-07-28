@@ -19,33 +19,25 @@ class Dashboard extends React.Component {
         this.updateMeters.bind(this)();
     }
 
-    updateMeters() {
+    async updateMeters() {
         // Check if there is already a request running. If so, do nothing
         if (this.state.loading) {
             return;
         }
 
         this.setState({ loading: true });
-        const url = window.urlPrefix + '/api/meters.json';
-        fetch(url)
-            .then(res => res.json())
-            .catch(
-                () => { this.setState({ loading: false }); this.updateMeters(); }
-            )
-            .then(
-                (result) => {
-                    if (result) {
-                        console.log('Meters fetched: ', result);
-                        this.setState({ loading: false, meters: result, lastUpdate: moment().format('YYYY-MM-DDTHH:mm:ss') });
-                    }
-                }
-            ).finally(
-                async () => {
-                    this.setState({ loading: false });
-                    await new Promise(resolve => setTimeout(resolve, 200));
-                    this.updateMeters();
-                }
-            );
+        try {
+            const reply = await fetch(window.urlPrefix + '/api/meters.json');
+            const result = await reply.json();
+            console.log('Meters fetched: ', result);
+            this.setState({ loading: false, meters: result, lastUpdate: moment().format('YYYY-MM-DDTHH:mm:ss') });
+        } catch(err) {
+            this.setState({ loading: false }); this.updateMeters();
+        } finally {
+            this.setState({ loading: false });
+            await new Promise(resolve => setTimeout(resolve, 200));
+            this.updateMeters();
+        }
     }
 
     regToFloat(meter, regId) {
@@ -78,8 +70,6 @@ class Dashboard extends React.Component {
                     </li>
                     {(() => {
                         let meters = [];
-                        if (Object.entries(this.state.meters.remote).length > 0) {
-                        }
                         for (const meterId in this.state.meters.remote) {
                             const meter = this.state.meters.remote[meterId];
                             console.log(`${meterId}: ${meter}`);
@@ -139,6 +129,7 @@ class Dashboard extends React.Component {
                                         <div className="card-body">
                                             <h5 className="card-title">Meter {meterId}<br/>RSSI: {meter.rssi}<br/>Last updated: {moment(lastUpdate).fromNow()} ({(luDiffMs / 1000).toFixed(0)}s) ({highestTimeStamp})</h5>
                                             <table className="card-text"><tbody>
+                                                <tr><td colSpan={5}>Modbus comm: {meter.err == false ? 'OK' : 'ERROR'}</td></tr>
                                                 <tr>
                                                     <td><b>U1:</b></td><td align='right'>{this.regToFloat(meter, "0000")}V</td>
                                                     <td>&nbsp;&nbsp;</td>

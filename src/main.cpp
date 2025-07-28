@@ -53,13 +53,15 @@ bool radioInitDone = false;
 volatile bool receivedFlag = false;
 
 PicoHal* hal = new PicoHal(SPI_PORT, SPI_MISO, SPI_MOSI, SPI_SCK);
-SX1280 radio = new Module(hal, SX1280_NSS, SX1280_DIO1, SX1280_NRST, SX1280_BUSY);
+SX1281 radio = new Module(hal, SX1280_NSS, SX1280_DIO1, SX1280_NRST, SX1280_BUSY);
 
 // PIO program offsets
 int offsetTx;
 int offsetRx;
 
 uint32_t localMeterSerial = 0;
+uint8_t modbusErrorCount = 0;
+uint64_t lastRxTs = 0;
 
 Json::Value storage;
 
@@ -228,14 +230,21 @@ void core1_tasks() {
 
     uint8_t numModbusReg = sizeof(eastron_sdm72m_input_registers) / sizeof(eastron_sdm72m_input_registers[0]);
 
-    // Startup: Read the meter's serial number
-    retVal = modbus_request(0x01, 0x03, 0xFC00, 0x0002, modbusArray, sizeof(modbusArray));
-    if (retVal > 0) {
-        memcpy(&localMeterSerial, modbusArray+3, 4);
+#pragma region LocalModbusDetection
+    uint64_t timeStart = time_us_64() / 1000;
+    // Give the meter max 10s to start up
+    while (!localMeterSerial && ((((time_us_64() / 1000) - timeStart) < 15000))) {
+        // Try to read the meter's serial number
+        retVal = modbus_request(0x01, 0x03, 0xFC00, 0x0002, modbusArray, sizeof(modbusArray));
+        if (retVal > 0) {
+            memcpy(&localMeterSerial, modbusArray+3, 4);
 
-        // Also store the meter's serial in the array we will be sending
-        memcpy(radioArray, modbusArray+3, 4);
+            // Also store the meter's serial in the array we will be sending
+            memcpy(radioArray, modbusArray+3, 4);
+        }
+        sleep_ms(200); // Wait 100ms before trying again
     }
+#pragma endregion LocalModbusDetection
 
 #pragma region RadioInit
     // RX EN
@@ -252,6 +261,7 @@ void core1_tasks() {
     state = radio.beginFLRC(2400.0, 260, 3, 13, 16, 2);
     uint8_t syncWord[] = {0xFA, 0xAC, 0x55, 0x37};
     state = radio.setSyncWord(syncWord, 4);
+    state = radio.setHighSensitivityMode(true);
     if (state == RADIOLIB_ERR_NONE) {
         LOG("SX1280 INIT OK");
     } else {
@@ -295,12 +305,13 @@ void core1_tasks() {
 
             // 20ms works as well, 10ms crashes the SDM72M. 40ms is safe
             // However, we wait 10ms after TX ON, so we use 30ms here
-            sleep_ms(30);
+            sleep_ms(50);
         }
 #pragma endregion
 
 #pragma region RadioSending
-        if (localMeterSerial) {
+        if (localMeterSerial && (retVal > 0)) {
+            modbusErrorCount = 0;
             // Meter serial number is already in the packet
             // Set this packet type to "Modbus raw value"
             radioArray[4] = 0x01;
@@ -309,16 +320,41 @@ void core1_tasks() {
             // Copy the value we just read
             memcpy(radioArray+7, modbusArray+3, 4);
 
+            uint64_t timeStart = time_us_64();
             state = radio.transmit(radioArray, 11);
+            uint64_t timeDiff = (time_us_64()) - timeStart;
             if (state == RADIOLIB_ERR_NONE) {
-                LOG("[SX1280] Packet transmitted successfully!");
-            } else if (state == RADIOLIB_ERR_PACKET_TOO_LONG) {
-                LOG("[SX1280] Packet too long!");
+                LOG("[SX1280] Packet transmitted successfully! Time taken: %llu µs", timeDiff);
             } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
                 LOG("[SX1280] Timed out while transmitting!");
             } else {
                 LOG("[SX1280] Failed to transmit packet, code %d", state);
             }
+        } else if (localMeterSerial && (modbusErrorCount > 10)) {
+            modbusErrorCount = 0;
+            // No modbus reply for 10 consecutive attempts, assume meter powerless!
+
+            LOG("No modbus reply for 10 consecutive attempts, assume meter powerless!");
+
+            // Meter serial number is already in the packet
+            // Set this packet type to "Modbus ERROR"
+            radioArray[4] = 0x02;
+
+            LOGHEX(5, radioArray);
+
+            uint64_t timeStart = time_us_64();
+            state = radio.transmit(radioArray, 9);
+            uint64_t timeDiff = (time_us_64()) - timeStart;
+            if (state == RADIOLIB_ERR_NONE) {
+                LOG("[SX1280] Packet transmitted successfully! Time taken: %llu µs", timeDiff);
+            } else if (state == RADIOLIB_ERR_TX_TIMEOUT) {
+                LOG("[SX1280] Timed out while transmitting!");
+            } else {
+                LOG("[SX1280] Failed to transmit packet, code %d", state);
+            }
+        } else if (localMeterSerial && (retVal <= 0)) {
+            modbusErrorCount++;
+            LOG("[SX1280] No Modbus data to send, skipping transmission. Err CNT: %d", modbusErrorCount);
         }
 #pragma endregion
 
@@ -333,50 +369,57 @@ void core1_tasks() {
             int stateRx = radio.readData(radioArray, numBytes);
 
             if (stateRx == RADIOLIB_ERR_NONE) {
-                if (numBytes == 11) {
-                    //float rssi = radio.getRSSI(); //dBm
-                    //float snr = radio.getSNR();   // dB
-                    //float fError = radio.getFrequencyError(); // Hz
-                    //LOG("[SX1280] Received packet! Size: %d, RSSI: %f dBm, SNR: %f dB, fError: %f, Data:", numBytes, rssi, snr, fError);
-                    //LOG("[SX1280] Received packet! Size: %d, Data:", numBytes);
-                    LOGHEX(numBytes, radioArray);
 
-                    uint32_t meterSerial;
-                    bytes = (uint8_t*)&meterSerial;
-                    bytes[0] = radioArray[3];
-                    bytes[1] = radioArray[2];
-                    bytes[2] = radioArray[1];
-                    bytes[3] = radioArray[0];
+                if ((numBytes < 5) || (numBytes > 11)) {
+                    continue;
+                }
 
-                    char meterSerialString[12];
-                    snprintf(meterSerialString, 12, "%u", meterSerial);
+                lastRxTs = time_us_64();
 
-                    float rssi = radio.getRSSI(); // dBm
-                    char rssiStr[16];
-                    snprintf(rssiStr, 16, "%f dBm", rssi);
-                    if ((rssi > 0.1) || (rssi < -0.1)) {
-                        storage["remote"][meterSerialString]["rssi"] = rssiStr;
-                    }
+                LOGHEX(numBytes, radioArray);
 
-                    uint8_t type = radioArray[4];
+                uint32_t meterSerial;
+                bytes = (uint8_t*)&meterSerial;
+                bytes[0] = radioArray[3];
+                bytes[1] = radioArray[2];
+                bytes[2] = radioArray[1];
+                bytes[3] = radioArray[0];
 
-                    if (type == 0x01) {
-                        // Modbus raw value
-                        uint16_t regAddr;
-                        memcpy(&regAddr, radioArray+5, 2);
-                        char regStr[5];
-                        snprintf(regStr, 5, "%04x", regAddr);
+                char meterSerialString[12];
+                snprintf(meterSerialString, 12, "%u", meterSerial);
 
-                        char valStr[10];
-                        snprintf(valStr, 10, "%02x%02x%02x%02x", radioArray[7], radioArray[8], radioArray[9], radioArray[10]);
+                float rssi = radio.getRSSI(); // dBm
+                char rssiStr[16];
+                snprintf(rssiStr, 16, "%f dBm", rssi);
+                if ((rssi > 0.1) || (rssi < -0.1)) {
+                    storage["remote"][meterSerialString]["rssi"] = rssiStr;
+                }
 
-                        LOG("Received Modbus value: Meter Serial: %d, Register: %04x, Value: %s, RSSI: %s", meterSerial, regAddr, valStr, rssiStr);
+                uint8_t type = radioArray[4];
 
-                        storage["remote"][meterSerialString][regStr]["ts"] = (Json::UInt)(time_us_64() / 1000);
-                        storage["remote"][meterSerialString][regStr]["val"] = valStr;
-                    } else {
-                        LOG("[SX1280] Unknown packet type: %02x", type);
-                    }
+
+                if (numBytes == 11 && type == 0x01) {
+                    // Modbus raw value
+                    uint16_t regAddr;
+                    memcpy(&regAddr, radioArray+5, 2);
+                    char regStr[5];
+                    snprintf(regStr, 5, "%04x", regAddr);
+
+                    char valStr[10];
+                    snprintf(valStr, 10, "%02x%02x%02x%02x", radioArray[7], radioArray[8], radioArray[9], radioArray[10]);
+
+                    LOG("Received Modbus value: Meter Serial: %d, Register: %04x, Value: %s, RSSI: %s", meterSerial, regAddr, valStr, rssiStr);
+
+                    storage["remote"][meterSerialString][regStr]["ts"] = (Json::UInt)(time_us_64() / 1000);
+                    storage["remote"][meterSerialString][regStr]["val"] = valStr;
+                    storage["remote"][meterSerialString]["err"] = false;
+                } else if ((numBytes == 9) && (type == 0x02)) {
+                    // Modbus ERROR
+                    LOG("Received Modbus ERROR!!!: Meter Serial: %d, RSSI: %s", meterSerial, rssiStr);
+                    storage["remote"][meterSerialString]["errTs"] = (Json::UInt)(time_us_64() / 1000);
+                    storage["remote"][meterSerialString]["err"] = true;
+                } else {
+                    LOG("[SX1280] Unknown packet type: %02x", type);
                 }
             } else if (stateRx == RADIOLIB_ERR_RX_TIMEOUT) {
                 LOG("[SX1280] Timed out while waiting for packet!");
@@ -385,6 +428,11 @@ void core1_tasks() {
             }
 
             // put module back to listen mode
+            radio.startReceive();
+        }
+
+        // If we did not receive a packet for 200ms, restart RX
+        if ((time_us_64() - lastRxTs) > (uint64_t)200000) {
             radio.startReceive();
         }
 #pragma endregion

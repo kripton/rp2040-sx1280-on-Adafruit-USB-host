@@ -132,15 +132,15 @@ void init_lwip(void)
     netif->hwaddr[5] ^= 0x01;
 
     // Compute the third byte of the IP with a value from
-    // the unique board id: 169.254.X.1 (board), 169.254.X.2 (host)
+    // the unique board id: 10.254.X.1 (board), 10.254.X.2 (host)
 
-    uint32_t tmpIp = 0x0100fea9UL;  // 169.254.0.1
+    uint32_t tmpIp = 0x0100fe0aUL;  // 10.254.0.1
     tmpIp = (tmpIp & 0xff00ffff) | ((uint32_t)id.id[6] << 16);
     ip4_addr_set_u32(&ownIp, tmpIp);
 
     ip4_addr_set_u32(&ownMask, 0x00ffffffUL); // 255.255.255.0
 
-    tmpIp = 0x0200fea9UL;  // 169.254.0.1
+    tmpIp = 0x0200fe0aUL;  // 10.254.0.1
     tmpIp = (tmpIp & 0xff00ffff) | ((uint32_t)id.id[6] << 16);
     ip4_addr_set_u32(&hostIp, tmpIp);
 
