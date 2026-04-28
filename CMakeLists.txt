@@ -85,15 +85,15 @@ endif()
 ## Add our own C/C++ files here
 ## Sorted alphabetically
 add_executable(${CMAKE_PROJECT_NAME}
-#    ${TINYUSB_LIBNETWORKING_SOURCES}
+    ${TINYUSB_LIBNETWORKING_SOURCES}
 #    ${CMAKE_CURRENT_LIST_DIR}/src/crc_modbus.c
-#    ${CMAKE_CURRENT_LIST_DIR}/src/log.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/log.cpp
 #    ${CMAKE_CURRENT_LIST_DIR}/src/main.cpp
-#    ${CMAKE_CURRENT_LIST_DIR}/src/stdio_usb.c
-#    ${CMAKE_CURRENT_LIST_DIR}/src/tusb_lwip_glue.c
-#    ${CMAKE_CURRENT_LIST_DIR}/src/usb_descriptors.c
-#    ${CMAKE_CURRENT_LIST_DIR}/src/webserver.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/src/sx1280_flrc_transmitter.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/stdio_usb.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/tusb_lwip_glue.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/usb_descriptors.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/webserver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/src/sx1280_flrc_transmitter.cpp
 )
 
 ## Add our rp2040-PIO programs here

@@ -14,12 +14,41 @@
  * - GP21 -> SX1280 BUSY
  */
 
+ extern "C" {
+    #include <stdio.h>
+    #include <stdint.h>
+    #include "hardware/clocks.h"
+    #include <hardware/vreg.h>      // To set 1.15V instead of the default 1.10V
+
+    #include "pico/stdlib.h"
+    #include "pico/multicore.h"
+    #include "hardware/pio.h"
+    #include "stdio_usb.h"
+
+    #include "pins.h"
+    #include "picotool_binary_information.h"
+
+    #include "tusb_lwip_glue.h"
+}
+
+
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
 #include "hardware/gpio.h"
+
+#include "log.h"
+#include "webserver.h"
+
+#include "json/json.h"
+
+// Super-globals (for all modules)
+Log logger;
+WebServer webServer;
+
+Json::Value storage;
 
 /* SX1280 Register Definitions */
 #define SX1280_CMD_SET_SLEEP              0x84
@@ -71,6 +100,8 @@
 #define SPI_CSN_PIN        0
 #define SPI_RESET_PIN      12
 #define SPI_BUSY_PIN       5
+#define SX1280_RX_EN_PIN   4
+#define SX1280_TX_EN_PIN   13
 
 /* SPI Clock Speed (18 MHz max for SX1280) */
 #define SPI_CLOCK_SPEED    10000000  /* 10 MHz for safety */
@@ -269,7 +300,7 @@ void sx1280_set_frequency(uint32_t freq) {
  * Write data to TX buffer and transmit
  */
 void sx1280_transmit(const uint8_t *data, uint16_t size) {
-    uint8_t buf[2];
+    uint8_t buf[3];
 
     /* Write payload to buffer */
     sx1280_write_buffer(0x00, data, size);
@@ -301,7 +332,43 @@ void sx1280_write_buffer(uint8_t offset, const uint8_t *buffer, uint16_t size) {
  * Main transmission loop
  */
 int main(void) {
-    stdio_init_all();
+    // Overclock the board to 200MHz. According to
+    // https://www.youtube.com/watch?v=G2BuoFNLo this should be
+    // totally safe with the default 1.10V Vcore
+    // However, we use 1.15V now since that is the "default" since SDK 2.1.1
+    vreg_set_voltage(VREG_VOLTAGE_1_15);
+    set_sys_clock_khz(200000, true);
+
+    //stdio_init_all();
+    logger.init();
+
+    // /!\ Do NOT use LOG() above this line! /!\
+
+    // Enable USB interface, the debugging console and the logger
+    tusb_init();
+    stdio_usb_init();
+    Log::stdioReady = true;
+
+    // Initialize lwip, dhcpd and httpd
+    // TinyUSB already needs to be initialized at this point
+    init_lwip();
+    wait_for_netif_is_up();
+
+    dhcpd_init();
+
+    webServer.init();
+
+    // RX EN
+    gpio_init(SX1280_RX_EN_PIN);
+    gpio_set_dir(SX1280_RX_EN_PIN, GPIO_OUT);
+
+    // TX EN
+    gpio_init(SX1280_TX_EN_PIN);
+    gpio_set_dir(SX1280_TX_EN_PIN, GPIO_OUT);
+
+    gpio_init(18);
+    gpio_set_dir(18, GPIO_OUT);
+
     sleep_ms(2000);
 
     printf("SX1280 High-Speed FLRC Transmitter\n");
@@ -323,15 +390,27 @@ int main(void) {
     printf("Starting transmission...\n");
 
     while (true) {
+        tud_task();
+
+        webServer.cyclicTask(); // Make sure this is on core0 since it
+                                // WILL halt core1 when writing to the flash!
+                                // Handles USB-ETH traffic
+
         /* Change channel */
         current_channel = (current_channel + 1) % NUM_CHANNELS;
         sx1280_set_frequency(channels[current_channel]);
+
+        gpio_put(18, 1);
+        gpio_put(SX1280_TX_EN_PIN, 1);
 
         /* Transmit packet */
         sx1280_transmit(payload, PAYLOAD_SIZE);
 
         /* Wait for TX complete (poll BUSY pin) */
         sx1280_wait_busy();
+
+        gpio_put(SX1280_TX_EN_PIN, 0);
+        gpio_put(18, 0);
 
         /* Return to standby */
         uint8_t buf[1] = {0x00};
